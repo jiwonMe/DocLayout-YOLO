@@ -474,6 +474,14 @@ class BaseTrainer:
             if self.args.plots:
                 self.plot_metrics()
             self.run_callbacks("on_train_end")
+        # Ensure dataloader workers are closed to avoid leaked semaphores
+        try:
+            if hasattr(self, "train_loader") and hasattr(self.train_loader, "close"):
+                self.train_loader.close()
+            if hasattr(self, "test_loader") and hasattr(self.test_loader, "close"):
+                self.test_loader.close()
+        except Exception:
+            pass
         torch.cuda.empty_cache()
         self.run_callbacks("teardown")
 

@@ -54,7 +54,33 @@ class InfiniteDataLoader(dataloader.DataLoader):
 
         This is useful when we want to modify settings of dataset while training.
         """
+        # Best-effort cleanup of existing iterator workers to avoid leaked semaphores
+        self._shutdown_iterator()
         self.iterator = self._get_iterator()
+
+    def _shutdown_iterator(self):
+        """Shut down existing iterator workers to prevent leaked semaphores at process exit."""
+        it = getattr(self, "iterator", None)
+        if it is None:
+            return
+        try:
+            # _MultiProcessingDataLoaderIter has a private API to shutdown workers
+            if hasattr(it, "_shutdown_workers"):
+                it._shutdown_workers()
+        except Exception:
+            # Swallow any cleanup errors; this is a best-effort shutdown
+            pass
+
+    def close(self):
+        """Close the dataloader by shutting down underlying worker processes."""
+        self._shutdown_iterator()
+
+    def __del__(self):
+        # Ensure workers are shut down during garbage collection
+        try:
+            self._shutdown_iterator()
+        except Exception:
+            pass
 
 
 class _RepeatSampler:
