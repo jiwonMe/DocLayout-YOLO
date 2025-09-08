@@ -31,12 +31,26 @@ class DilatedBlock(nn.Module):
             
         self.dcv = Conv(c, c, k=self.k, s=1)
 
-    def dilated_conv(self, x, dilation):
-        act = self.dcv.act
-        bn = self.dcv.bn
-        weight = self.dcv.conv.weight
-        padding = dilation * (self.k//2)
-        return act(bn(F.conv2d(x, weight, stride=1, padding=padding, dilation=dilation)))
+    def dilated_conv(self, x, d):
+    # 기존처럼 bn/act/conv에 직접 접근하기 전에, 안전하게 getattr 사용
+    conv = getattr(self.dcv, 'conv', None)
+    bn   = getattr(self.dcv, 'bn', None)
+    act  = getattr(self.dcv, 'act', None)
+
+    if conv is not None:
+        # Conv 모듈이 dilation 인자를 받도록 설계돼 있다면 이렇게:
+        y = conv(x, dilation=d)
+        if bn is not None:
+            y = bn(y)
+        if act is not None:
+            y = act(y)
+        return y
+    else:
+        # self.dcv가 단일 호출 모듈(nn.Module)이라면 그냥 호출
+        try:
+            return self.dcv(x, dilation=d)
+        except TypeError:
+            return self.dcv(x)
     
     def forward(self, x):
         """'forward()' applies the YOLO FPN to input data."""
