@@ -730,7 +730,8 @@ def torch_safe_load(weight):
                 "doclayout_yolo.yolo.data": "doclayout_yolo.data",
             }
         ):  # for legacy 8.0 Classify and Pose models
-            ckpt = torch.load(file, map_location="cpu", weights_only=False)
+            from doclayout_yolo.utils.torch_utils import load_checkpoint_safely
+            ckpt = load_checkpoint_safely(file, map_location="cpu")
 
     except ModuleNotFoundError as e:  # e.name is missing module name
         if e.name == "models":
@@ -750,7 +751,8 @@ def torch_safe_load(weight):
             f"run a command with an official YOLOv8 model, i.e. 'yolo predict model=yolov8n.pt'"
         )
         check_requirements(e.name)  # install missing module
-        ckpt = torch.load(file, map_location="cpu", weights_only=False)
+        from doclayout_yolo.utils.torch_utils import load_checkpoint_safely
+        ckpt = load_checkpoint_safely(file, map_location="cpu")
 
     if not isinstance(ckpt, dict):
         # File is likely a YOLO instance saved with i.e. torch.save(model, "saved_model.pt")

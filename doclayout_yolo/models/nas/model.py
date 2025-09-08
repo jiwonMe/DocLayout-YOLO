@@ -55,7 +55,8 @@ class NAS(Model):
 
         suffix = Path(weights).suffix
         if suffix == ".pt":
-            self.model = torch.load(weights)
+            from doclayout_yolo.utils.torch_utils import load_checkpoint_safely
+            self.model = load_checkpoint_safely(weights)
         elif suffix == "":
             self.model = super_gradients.training.models.get(weights, pretrained_weights="coco")
         # Standardize model

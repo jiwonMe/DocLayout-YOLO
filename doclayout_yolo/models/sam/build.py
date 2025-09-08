@@ -129,8 +129,9 @@ def _build_sam(
     )
     if checkpoint is not None:
         checkpoint = attempt_download_asset(checkpoint)
+        from doclayout_yolo.utils.torch_utils import load_checkpoint_safely
         with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f)
+            state_dict = load_checkpoint_safely(f, map_location="cpu")
         sam.load_state_dict(state_dict)
     sam.eval()
     # sam.load_state_dict(torch.load(checkpoint), strict=True)

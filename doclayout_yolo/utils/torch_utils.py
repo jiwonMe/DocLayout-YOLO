@@ -15,6 +15,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
+from torch.serialization import add_safe_globals, safe_globals
 
 from doclayout_yolo.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, __version__
 from doclayout_yolo.utils.checks import PYTHON_VERSION, check_version
@@ -55,6 +56,43 @@ def smart_inference_mode():
             return (torch.inference_mode if TORCH_1_9 else torch.no_grad)()(fn)
 
     return decorate
+
+
+def load_checkpoint_safely(path_or_file, map_location: str | torch.device = "cpu"):
+    """
+    Safely load a PyTorch checkpoint across torch>=2.6 where torch.load defaults to weights_only=True.
+
+    Strategy:
+    1) Fast path for trusted checkpoints: attempt with weights_only=False.
+    2) On failure, keep safety by allowlisting needed globals and retry with weights_only=True.
+
+    Args:
+        path_or_file (str | Path | file-like): Checkpoint path or file object.
+        map_location (str | torch.device): Device mapping for tensors. Default: 'cpu'.
+
+    Returns:
+        Any: The loaded Python object (dict, nn.Module, state_dict, etc.).
+
+    Raises:
+        RuntimeError: If both loading strategies fail.
+    """
+    try:
+        return torch.load(path_or_file, map_location=map_location, weights_only=False)
+    except Exception as e1:
+        # Allowlist only the minimum set of globals required by our checkpoints
+        allowlist = [
+            ("doclayout_yolo.nn.tasks", "YOLOv10DetectionModel"),
+            ("doclayout_yolo.nn.tasks", "DetectionModel"),
+            ("ultralytics.nn.tasks", "DetectionModel"),
+        ]
+        try:
+            add_safe_globals(allowlist)
+            with safe_globals(allowlist):
+                return torch.load(path_or_file, map_location=map_location, weights_only=True)
+        except Exception as e2:
+            raise RuntimeError(
+                f"Failed to load checkpoint safely.\n1st error (weights_only=False): {e1}\n2nd error (allowlisted, weights_only=True): {e2}"
+            )
 
 
 def get_cpu_info():
