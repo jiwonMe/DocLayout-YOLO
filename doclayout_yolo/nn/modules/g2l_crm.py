@@ -2,6 +2,9 @@ import math
 from functools import partial
 from typing import Any, Callable, List, Optional, Tuple
 
+import torch.nn.functional as F
+import torch.nn as nn
+
 from .conv import Conv
 from .block import CIB
 
@@ -32,25 +35,37 @@ class DilatedBlock(nn.Module):
         self.dcv = Conv(c, c, k=self.k, s=1)
 
     def dilated_conv(self, x, d):
-        # 기존처럼 bn/act/conv에 직접 접근하기 전에, 안전하게 getattr 사용
+        # self.dcv는 보통 Ultralytics Conv 래퍼( conv/bn/act 멤버 )입니다.
         conv = getattr(self.dcv, 'conv', None)
-        bn   = getattr(self.dcv, 'bn', None)
+        bn   = getattr(self.dcv, 'bn', None)   # fused면 None일 수 있음
         act  = getattr(self.dcv, 'act', None)
 
-        if conv is not None:
-            # Conv 모듈이 dilation 인자를 받도록 설계돼 있다면 이렇게:
-            y = conv(x, dilation=d)
+        # Conv2d 모듈이 있으면 weight로 직접 F.conv2d를 호출해 dilation을 동적으로 적용
+        if isinstance(conv, nn.Conv2d):
+            # kernel/stride/groups 등 파라미터 꺼내기
+            weight = conv.weight
+            bias   = conv.bias
+            stride = conv.stride if isinstance(conv.stride, tuple) else (conv.stride, conv.stride)
+            ks     = conv.kernel_size if isinstance(conv.kernel_size, tuple) else (conv.kernel_size, conv.kernel_size)
+            groups = conv.groups
+            dil    = d if isinstance(d, tuple) else (d, d)
+
+            # SAME 패딩 등가 형태(원래 Conv 래퍼가 same-padding이었다면 이렇게 맞춰줍니다)
+            pad = ((ks[0] - 1) // 2 * dil[0], (ks[1] - 1) // 2 * dil[1])
+
+            y = F.conv2d(x, weight, bias=bias, stride=stride, padding=pad, dilation=dil, groups=groups)
+
+            # fused면 bn이 None이라 스킵, act는 있을 수도 있음
             if bn is not None:
                 y = bn(y)
             if act is not None:
                 y = act(y)
             return y
-        else:
-            # self.dcv가 단일 호출 모듈(nn.Module)이라면 그냥 호출
-            try:
-                return self.dcv(x, dilation=d)
-            except TypeError:
-                return self.dcv(x)
+
+        # conv 래퍼가 아니거나 구조가 다르면, dilation 동적 적용 불가 → 일반 경로로 호출
+        # (여기선 최소한 터지지 않게 fallback)
+        y = self.dcv(x)
+        return y
     
     def forward(self, x):
         """'forward()' applies the YOLO FPN to input data."""
